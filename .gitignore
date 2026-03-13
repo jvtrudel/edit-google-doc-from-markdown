@@ -1,4 +1,7 @@
 /target
+/.tmp
+tmp
+
 
 # Fichiers sensibles - ne jamais committer
 .env
