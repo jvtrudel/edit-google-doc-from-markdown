@@ -1,10 +1,29 @@
-# TODO - Décisions à prendre et/ou à documenter
+# TODO
 
-## conventions de gestion de code avec git et lien avec le cycle de développement
+
+## Développement des commandes slash
+
+
+
+## Développement du cli
+
+- commande pour démarrer une nouvelle ronde d'amélioration `nou dev enhancement new $TYPE/$SLUG`
+  - vérifier que sur main et git propre
+  - créer les documents nécessaire
+  - adapter les commandes slashs pour utiliser cette commande cli
+- ajouter l'autocomplétion
+
+- commande pour initialiser chaque ressource: besoin, requis, fonctionalités, etc...
+
+
+
+## Décisions à prendre et/ou à documenter
+
+### conventions de gestion de code avec git et lien avec le cycle de développement
 
 - voir la description de la méthodologie de développement dans le ichier `CLAUDE.md`
 
-## information-centric development
+### information-centric development
 
 - distinguer les données (ce sur quoi on opère), l'information (le contenu informationnel) et la connaissance (le savoir)
 - les opérations doivent traiter l'information et non seulement la donnée
@@ -15,7 +34,7 @@
 - l'utilisateur doit être informé lorsque les opérations qui impliquent une perte d'information
 - un format de donnée est une représentation de l'information
 
-## CLI first, AI second
+### CLI first, AI second
 
 Pourquoi: interface humain-machine, UX, productivité 
 
