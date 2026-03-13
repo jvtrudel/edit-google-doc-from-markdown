@@ -195,7 +195,15 @@ Le CLI `nou` fournit des raccourcis pour les opérations courantes. L'IA doit ut
 ```bash
 nou help                    # Aide générale
 nou status                  # État du projet (branche, phase, ticket)
-nou run "instruction"       # Lancer l'agent IA avec une requête
+nou run "instruction"       # Lancer une commande avec l'outil
+```
+
+### Commandes de synchronisation
+
+```bash
+nou push <fichier.md>       # Publier Markdown → Google Doc
+nou pull <fichier.md>       # Récupérer Google Doc → Markdown
+nou status <fichier.md>     # État de synchronisation
 ```
 
 ### Commandes de développement
@@ -220,7 +228,9 @@ nou doc features            # Lister les fonctionnalités
 ```bash
 cargo check                 # Vérifier la compilation
 cargo build --release       # Compiler en release
-cargo run -- "..."          # Lancer l'agent avec une requête
+cargo run -- push doc.md    # Push un fichier Markdown
+cargo run -- pull doc.md    # Pull un Google Doc
+cargo run -- status doc.md  # État de synchronisation
 cargo clippy                # Linter
 cargo fmt                   # Formater le code
 ```
@@ -231,7 +241,8 @@ cargo fmt                   # Formater le code
 
 - **Langage :** Rust (edition 2024)
 - **Runtime async :** tokio
-- **HTTP client :** reqwest (appels API Anthropic)
+- **CLI :** clap v4 (derive)
+- **Markdown :** pulldown-cmark (parseur)
 - **Google Docs :** google-docs1 v5 + yup-oauth2 v9 + hyper 0.14
 - **Sérialisation :** serde / serde_json
 - **Erreurs :** anyhow + thiserror
@@ -242,11 +253,21 @@ cargo fmt                   # Formater le code
 
 ```
 src/
-├── main.rs          # Point d'entrée CLI, chargement config, lancement agent
-├── agent.rs         # Boucle agentique : appels API Anthropic, gestion tool_use/tool_result
-├── google_docs.rs   # Client Google Docs API (CRUD via compte de service)
-└── tools.rs         # Définitions JSON des outils + struct ToolResult
+├── main.rs            # Point d'entrée CLI (clap) : push, pull, status
+├── cli.rs             # Définition des sous-commandes et arguments
+├── google_docs.rs     # Transport : lecture/écriture via API Google Docs
+├── markdown.rs        # Parsage et génération de Markdown (pulldown-cmark)
+├── converter.rs       # Conversion bidirectionnelle Markdown ↔ structure Google Docs
+├── style.rs           # Extraction, sauvegarde et réapplication du style Google Docs
+├── sync.rs            # Logique de synchronisation : push, pull, détection de conflits
+├── mapping.rs         # Association fichier ↔ document, métadonnées de sync
+└── error.rs           # Types d'erreur custom (thiserror)
 ```
+
+L'architecture sépare trois couches :
+- **Transport** (`google_docs.rs`) : lecture/écriture via l'API Google
+- **Conversion** (`markdown.rs`, `converter.rs`) : transformation Markdown ↔ structure Google Docs
+- **Style** (`style.rs`) : préservation et réapplication du style Google Docs
 
 ### Conventions de code
 
@@ -254,7 +275,6 @@ src/
 - Les erreurs utilisent `anyhow::Result` pour la propagation, `thiserror` pour les types d'erreur custom
 - Les logs passent par `tracing` (macros `info!`, `debug!`, `error!`)
 - Les variables sensibles (clés API, JSON service account) sont dans `.env` et **jamais committées**
-- Chaque outil exposé à Claude est défini dans `tools.rs` avec un schéma JSON conforme au format Anthropic tool_use
 
 ## Fichiers sensibles (ne jamais committer)
 

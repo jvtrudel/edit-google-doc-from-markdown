@@ -1,12 +1,17 @@
-mod agent;
+mod cli;
+mod converter;
+mod error;
 mod google_docs;
-mod tools;
+mod mapping;
+mod markdown;
+mod style;
+mod sync;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
+use clap::Parser;
 use tracing::info;
 
-use agent::{AgentConfig, ClaudeAgent};
-use google_docs::GoogleDocsClient;
+use cli::{Cli, Command};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -21,47 +26,23 @@ async fn main() -> Result<()> {
     // Charger les variables d'environnement depuis .env
     dotenvy::dotenv().ok();
 
-    let api_key = std::env::var("ANTHROPIC_API_KEY")
-        .context("La variable ANTHROPIC_API_KEY est requise")?;
+    let cli = Cli::parse();
 
-    let service_account_path = std::env::var("GOOGLE_SERVICE_ACCOUNT_KEY")
-        .unwrap_or_else(|_| "service-account.json".to_string());
-
-    info!("Initialisation du client Google Docs...");
-    let docs_client = GoogleDocsClient::new(&service_account_path).await?;
-
-    let config = AgentConfig {
-        api_key,
-        ..Default::default()
-    };
-
-    let mut agent = ClaudeAgent::new(config, docs_client);
-
-    // Lire la demande de l'utilisateur depuis les arguments ou stdin
-    let user_request = get_user_request();
-
-    info!("Lancement de l'agent...");
-    let result = agent.run(user_request).await?;
-
-    println!("\n=== Résultat final ===\n{}", result);
-
-    Ok(())
-}
-
-/// Récupère la demande utilisateur depuis les arguments CLI ou stdin
-fn get_user_request() -> String {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-
-    if !args.is_empty() {
-        return args.join(" ");
+    match cli.command {
+        Command::Push { fichier, doc_id, force } => {
+            info!("Push: {} → Google Docs", fichier.display());
+            sync::push(&fichier, doc_id.as_deref(), force).await?;
+        }
+        Command::Pull { fichier, doc_id, force } => {
+            info!("Pull: Google Docs → {}", fichier.display());
+            sync::pull(&fichier, doc_id.as_deref(), force).await?;
+        }
+        Command::Status { fichier } => {
+            info!("Status: {}", fichier.display());
+            sync::status(&fichier).await?;
+        }
     }
 
-    println!("Entrez votre demande pour l'agent (puis appuyez sur Entrée):");
-    let mut input = String::new();
-    std::io::stdin()
-        .read_line(&mut input)
-        .expect("Impossible de lire l'entrée");
-
-    input.trim().to_string()
+    Ok(())
 }
 

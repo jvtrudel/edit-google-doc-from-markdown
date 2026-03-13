@@ -2,7 +2,7 @@
 
 **Branche :** `feat/change-portee-du-projet`  
 **Date :** 2026-03-13  
-**Phase :** 1 — Définir la portée de l'amélioration  
+**Phase :** 3 — Implémentation (terminée)  
 **Type :** Architecture / Documentation
 
 ---
@@ -31,7 +31,10 @@ L'ADR-001 a été généré automatiquement sans instruction précise. Il ne dé
 - [x] `NEED-002` — Besoin : Suivi de l'évolution du document via git
 - [x] `REQ-001` à `REQ-009` — Requis
 - [x] `FEAT-001` à `FEAT-003` — Fonctionnalités
-- [ ] `ADR-001` — Portée du projet (réécrit ✓)
+- [x] `ADR-001` — Portée du projet (réécrit)
+- [x] Restructuration du code (`agent.rs`/`tools.rs` supprimés, 6 nouveaux modules créés)
+- [x] Mise à jour `Cargo.toml` (retrait `reqwest`, ajout `clap`/`pulldown-cmark`)
+- [x] Mise à jour `CLAUDE.md` (architecture, stack technique)
 
 ## Documents créés
 

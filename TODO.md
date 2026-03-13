@@ -14,6 +14,7 @@
 - ajouter l'autocomplétion
 
 - commande pour initialiser chaque ressource: besoin, requis, fonctionalités, etc...
+- ajouter une commande pour 'git ad+commit -m' lorsqu'une phase est terminée
 
 
 
