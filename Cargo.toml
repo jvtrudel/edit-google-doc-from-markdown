@@ -1,0 +1,32 @@
+[package]
+name = "edit-google-doc"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client pour l'API Anthropic
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Sérialisation JSON
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Variables d'environnement (.env)
+dotenvy = "0.15"
+
+# Gestion des erreurs
+anyhow = "1"
+thiserror = "2"
+
+# Google Docs API (v5 utilise hyper 0.14 et yup-oauth2 v9)
+google-docs1 = "5"
+yup-oauth2 = "9"
+hyper = { version = "0.14", features = ["full"] }
+hyper-rustls = { version = "0.24", features = ["native-tokio", "http1"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

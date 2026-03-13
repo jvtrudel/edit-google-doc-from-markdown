@@ -1,0 +1,6 @@
+/target
+
+# Fichiers sensibles - ne jamais committer
+.env
+service-account.json
+*-service-account.json
