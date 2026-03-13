@@ -2,7 +2,7 @@
 
 **Branche :** `feat/change-portee-du-projet`  
 **Date :** 2026-03-13  
-**Phase :** 3 — Implémentation (terminée)  
+**Phase :** 5 — Consolidation (terminée)  
 **Type :** Architecture / Documentation
 
 ---
