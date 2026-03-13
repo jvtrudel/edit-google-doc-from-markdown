@@ -1,14 +1,17 @@
 [package]
 name = "edit-google-doc"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 
-# HTTP client pour l'API Anthropic
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Parseur Markdown
+pulldown-cmark = "0.12"
 
 # Sérialisation JSON
 serde = { version = "1", features = ["derive"] }
