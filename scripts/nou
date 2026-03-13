@@ -1,0 +1,218 @@
+#!/bin/bash
+# nou — CLI pour le projet edit-google-doc-from-markdown
+# Prototype : commandes non fonctionnelles, documentation uniquement
+set -euo pipefail
+
+VERSION="0.1.0-prototype"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Couleurs
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+stub() {
+    echo -e "${YELLOW}⚠️  Non implémenté — prévu pour une prochaine version${NC}"
+    echo -e "   Fonctionnalité : $1"
+}
+
+# ─── Commandes principales ───────────────────────────────────────────
+
+cmd_help() {
+    echo -e "${BOLD}nou${NC} — CLI pour edit-google-doc-from-markdown (v${VERSION})"
+    echo ""
+    echo -e "${BOLD}USAGE${NC}"
+    echo "    nou <commande> [arguments]"
+    echo ""
+    echo -e "${BOLD}COMMANDES UTILISATEUR${NC}"
+    echo "    help                    Affiche cette aide"
+    echo "    status                  État du projet (branche, phase, ticket)"
+    echo "    run \"instruction\"       Lancer l'agent IA avec une requête"
+    echo ""
+    echo -e "${BOLD}COMMANDES DE DÉVELOPPEMENT${NC}"
+    echo "    dev init [name]         Créer une nouvelle ronde d'amélioration"
+    echo "    dev ticket              Afficher le ticket de la ronde courante"
+    echo "    dev phase               Afficher la phase courante"
+    echo "    dev log \"description\"   Écrire une entrée de log"
+    echo ""
+    echo -e "${BOLD}COMMANDES DE DOCUMENTATION${NC}"
+    echo "    doc needs               Lister les besoins"
+    echo "    doc requirements        Lister les requis"
+    echo "    doc features            Lister les fonctionnalités"
+}
+
+cmd_status() {
+    echo -e "${BOLD}État du projet${NC}"
+    echo ""
+
+    # Branche courante
+    local branch
+    branch=$(git branch --show-current 2>/dev/null || echo "inconnue")
+    echo -e "  ${CYAN}Branche :${NC} $branch"
+
+    # Dernier répertoire d'historique
+    local latest_history
+    latest_history=$(ls -d "$SCRIPT_DIR"/.dev/history/*/ 2>/dev/null | sort | tail -1 || echo "")
+    if [ -n "$latest_history" ]; then
+        local ronde_name
+        ronde_name=$(basename "$latest_history")
+        echo -e "  ${CYAN}Ronde :${NC}   $ronde_name"
+
+        # Ticket
+        if [ -f "$latest_history/ticket.md" ]; then
+            local phase
+            phase=$(grep -i "phase" "$latest_history/ticket.md" | head -1 || echo "inconnue")
+            echo -e "  ${CYAN}Phase :${NC}   $phase"
+        fi
+    else
+        echo -e "  ${YELLOW}Aucune ronde d'amélioration en cours${NC}"
+    fi
+}
+
+cmd_run() {
+    local instruction="${1:-}"
+    if [ -z "$instruction" ]; then
+        echo -e "${RED}Erreur : fournir une instruction${NC}"
+        echo "Usage : nou run \"votre instruction\""
+        exit 1
+    fi
+    stub "Lancer l'agent IA avec : $instruction"
+}
+
+# ─── Commandes dev ───────────────────────────────────────────────────
+
+cmd_dev_init() {
+    local name="${1:-}"
+    if [ -z "$name" ]; then
+        echo -e "${RED}Erreur : fournir un nom pour la ronde${NC}"
+        echo "Usage : nou dev init <nom>"
+        exit 1
+    fi
+    stub "Créer une nouvelle ronde d'amélioration : $name"
+}
+
+cmd_dev_ticket() {
+    local latest_history
+    latest_history=$(ls -d "$SCRIPT_DIR"/.dev/history/*/ 2>/dev/null | sort | tail -1 || echo "")
+    if [ -n "$latest_history" ] && [ -f "$latest_history/ticket.md" ]; then
+        cat "$latest_history/ticket.md"
+    else
+        echo -e "${YELLOW}Aucun ticket trouvé${NC}"
+    fi
+}
+
+cmd_dev_phase() {
+    local latest_history
+    latest_history=$(ls -d "$SCRIPT_DIR"/.dev/history/*/ 2>/dev/null | sort | tail -1 || echo "")
+    if [ -n "$latest_history" ] && [ -f "$latest_history/ticket.md" ]; then
+        grep -i "phase" "$latest_history/ticket.md" | head -1 || echo "Phase inconnue"
+    else
+        echo -e "${YELLOW}Aucune ronde en cours${NC}"
+    fi
+}
+
+cmd_dev_log() {
+    local description="${1:-}"
+    if [ -z "$description" ]; then
+        echo -e "${RED}Erreur : fournir une description${NC}"
+        echo "Usage : nou dev log \"description\""
+        exit 1
+    fi
+    stub "Écrire une entrée de log : $description"
+}
+
+# ─── Commandes doc ───────────────────────────────────────────────────
+
+cmd_doc_needs() {
+    echo -e "${BOLD}Besoins utilisateurs${NC}"
+    local count
+    count=$(find "$SCRIPT_DIR"/.dev/needs -name "*.md" ! -name "README.md" ! -name "_template.md" 2>/dev/null | wc -l)
+    if [ "$count" -gt 0 ]; then
+        find "$SCRIPT_DIR"/.dev/needs -name "*.md" ! -name "README.md" ! -name "_template.md" -exec basename {} \; | sort
+    else
+        echo -e "  ${YELLOW}Aucun besoin documenté${NC}"
+    fi
+}
+
+cmd_doc_requirements() {
+    echo -e "${BOLD}Requis${NC}"
+    local count
+    count=$(find "$SCRIPT_DIR"/.dev/requirements -name "*.md" ! -name "README.md" ! -name "_template.md" 2>/dev/null | wc -l)
+    if [ "$count" -gt 0 ]; then
+        find "$SCRIPT_DIR"/.dev/requirements -name "*.md" ! -name "README.md" ! -name "_template.md" -exec basename {} \; | sort
+    else
+        echo -e "  ${YELLOW}Aucun requis documenté${NC}"
+    fi
+}
+
+cmd_doc_features() {
+    echo -e "${BOLD}Fonctionnalités${NC}"
+    local count
+    count=$(find "$SCRIPT_DIR"/.dev/features -name "*.md" ! -name "README.md" ! -name "_template.md" 2>/dev/null | wc -l)
+    if [ "$count" -gt 0 ]; then
+        find "$SCRIPT_DIR"/.dev/features -name "*.md" ! -name "README.md" ! -name "_template.md" -exec basename {} \; | sort
+    else
+        echo -e "  ${YELLOW}Aucune fonctionnalité documentée${NC}"
+    fi
+}
+
+# ─── Routeur ─────────────────────────────────────────────────────────
+
+main() {
+    local cmd="${1:-help}"
+    shift || true
+
+    case "$cmd" in
+        help|-h|--help)
+            cmd_help
+            ;;
+        status)
+            cmd_status
+            ;;
+        run)
+            cmd_run "$@"
+            ;;
+        dev)
+            local subcmd="${1:-}"
+            shift || true
+            case "$subcmd" in
+                init)    cmd_dev_init "$@" ;;
+                ticket)  cmd_dev_ticket ;;
+                phase)   cmd_dev_phase ;;
+                log)     cmd_dev_log "$@" ;;
+                *)
+                    echo -e "${RED}Commande dev inconnue : $subcmd${NC}"
+                    echo "Commandes disponibles : init, ticket, phase, log"
+                    exit 1
+                    ;;
+            esac
+            ;;
+        doc)
+            local subcmd="${1:-}"
+            shift || true
+            case "$subcmd" in
+                needs)        cmd_doc_needs ;;
+                requirements) cmd_doc_requirements ;;
+                features)     cmd_doc_features ;;
+                *)
+                    echo -e "${RED}Commande doc inconnue : $subcmd${NC}"
+                    echo "Commandes disponibles : needs, requirements, features"
+                    exit 1
+                    ;;
+            esac
+            ;;
+        version|-v|--version)
+            echo "nou v${VERSION}"
+            ;;
+        *)
+            echo -e "${RED}Commande inconnue : $cmd${NC}"
+            echo "Tapez 'nou help' pour l'aide."
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
