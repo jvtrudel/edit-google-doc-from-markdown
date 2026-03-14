@@ -43,8 +43,45 @@ Pour l'instant, ne pas faire de gestion de conflit complète.
 
 ## Livrables
 
-  - commande pull implémentée
-  - implémenter les tests nécessaires
+### L1 — Transport : lecture du Google Doc (`google_docs.rs`)
+- `get_document()` est déjà implémenté — vérifier qu'il fonctionne avec le compte de service
+
+### L2 — Conversion Google Docs → Markdown (`converter.rs`, `markdown.rs`)
+- Implémenter `gdoc_to_markdown()` : extraire le contenu sémantique d'un `Document` en `Vec<MdNode>`
+- Implémenter `render()` : générer du Markdown stable et déterministe depuis `Vec<MdNode>`
+- Éléments supportés : titres (h1-h6), paragraphes, gras, italique, listes, liens, code, lignes horizontales
+- Le parsage Markdown (`parse()`) reste un stub — non nécessaire pour le pull
+
+### L3 — Persistance de l'association (`mapping.rs`)
+- Implémenter `load_metadata()` / `save_metadata()` : stockage dans `.nou/state.json`
+- Implémenter `set_document_id()` : créer/mettre à jour l'association
+- Premier appel avec `--doc-id` crée l'association; les suivants l'utilisent
+
+### L4 — Orchestration du pull (`sync.rs`)
+- Implémenter `pull()` :
+  1. Résoudre le `doc_id` (argument ou persistance)
+  2. Lire le Google Doc via le transport
+  3. Convertir en Markdown
+  4. Vérification simplifiée : si le fichier local est plus récent que la dernière sync, refuser (sauf `--force`)
+  5. Écrire le fichier Markdown
+  6. Sauvegarder les métadonnées de synchronisation
+
+### L5 — CLI (`cli.rs`, `main.rs`)
+- Le fichier `<fichier.md>` devient optionnel (utilise la persistance si absent)
+- Ajouter `-f` comme alias de `--force`
+
+### L6 — Tests
+- Test unitaire : conversion d'un `Document` Google Docs minimal → Markdown
+- Test unitaire : `render()` produit du Markdown stable (même entrée = même sortie)
+- Test unitaire : persistance (save/load round-trip)
+
+## Hors périmètre (rondes ultérieures)
+
+- Style Google Docs (REQ-005) — ni extraction ni réapplication
+- Détection de conflits bidirectionnelle complète (REQ-006) — seule la vérification « fichier local plus récent » est faite
+- Push (FEAT-001)
+- Gestion multi-fichiers (REQ-011) — un seul fichier courant pour l'instant
+- Signalement des pertes d'information (REQ-004) — reporté
 
 ## Comportement attendu
 
