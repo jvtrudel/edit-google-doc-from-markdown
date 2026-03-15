@@ -2,8 +2,9 @@
 
 **Branche :** `impl/sync-file`  
 **Date :** 2026-03-14  
-**Phase :** 1 — Définir la portée de l'amélioration  
-**Type :** Implémentation
+**Phase :** 5 — Consolidation  
+**Type :** Implémentation  
+**Version :** v0.3.0
 
 ---
 
