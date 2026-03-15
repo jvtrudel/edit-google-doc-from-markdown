@@ -59,6 +59,7 @@ cmd_help() {
     echo "    dev init [name]         Créer une nouvelle ronde d'amélioration"
     echo "    dev ticket              Afficher le ticket de la ronde courante"
     echo "    dev phase               Afficher la phase courante"
+    echo "    dev advance [--dry-run]  Commiter et passer à la phase suivante"
     echo "    dev log \"description\"   Écrire une entrée de log"
     echo ""
     echo -e "${BOLD}COMMANDES DE DOCUMENTATION${NC}"
@@ -147,6 +148,138 @@ cmd_dev_log() {
     stub "Écrire une entrée de log : $description"
 }
 
+# Phases du cycle de développement
+PHASES=(
+    "1 — Définir la portée"
+    "2 — Planifier l'amélioration"
+    "3 — Implémenter l'amélioration"
+    "4 — Vérifier l'amélioration"
+    "5 — Consolider l'amélioration"
+    "6 — Publier l'amélioration"
+)
+
+# Extraire le numéro de phase depuis le ticket
+get_current_phase_num() {
+    local ticket="$1"
+    grep -oP '\*\*Phase\s*:\*\*\s*\K[0-9]+' "$ticket" 2>/dev/null || echo "0"
+}
+
+# Trouver le répertoire de la ronde courante
+get_current_round_dir() {
+    ls -d "$PROJECT_DIR"/.dev/history/*/ 2>/dev/null | sort | tail -1 || echo ""
+}
+
+cmd_dev_advance() {
+    local dry_run=false
+    for arg in "$@"; do
+        case "$arg" in
+            --dry-run) dry_run=true ;;
+        esac
+    done
+
+    # 1. Trouver la ronde courante
+    local round_dir
+    round_dir=$(get_current_round_dir)
+    if [ -z "$round_dir" ] || [ ! -f "$round_dir/ticket.md" ]; then
+        echo -e "${RED}Erreur : aucune ronde d'amélioration en cours${NC}"
+        exit 1
+    fi
+
+    local round_name
+    round_name=$(basename "$round_dir")
+    local ticket="$round_dir/ticket.md"
+
+    # 2. Détecter la branche
+    local branch
+    branch=$(git -C "$PROJECT_DIR" branch --show-current 2>/dev/null || echo "inconnue")
+
+    # 3. Détecter la phase courante
+    local phase_num
+    phase_num=$(get_current_phase_num "$ticket")
+    if [ "$phase_num" -eq 0 ]; then
+        echo -e "${RED}Erreur : impossible de détecter la phase dans le ticket${NC}"
+        exit 1
+    fi
+
+    local current_phase="${PHASES[$((phase_num - 1))]}"
+
+    # 4. Déterminer la prochaine phase
+    local next_phase_num=$((phase_num + 1))
+    local next_phase
+    local is_final=false
+    if [ "$next_phase_num" -gt 6 ]; then
+        next_phase="Terminée"
+        is_final=true
+    else
+        next_phase="${PHASES[$((next_phase_num - 1))]}"
+    fi
+
+    # 5. Construire le message de commit
+    local commit_msg
+    if [ "$is_final" = true ]; then
+        commit_msg="chore(${round_name}): fin de l'amélioration — phase ${current_phase} terminée"
+    else
+        commit_msg="chore(${round_name}): passage phase ${current_phase} → ${next_phase}"
+    fi
+
+    # 6. Vérifier s'il y a des modifications
+    local has_changes
+    has_changes=$(git -C "$PROJECT_DIR" status --porcelain 2>/dev/null | wc -l)
+
+    # 7. Afficher le résumé
+    echo -e "${BOLD}nou dev advance${NC}"
+    echo ""
+    echo -e "  ${CYAN}Ronde :${NC}          $round_name"
+    echo -e "  ${CYAN}Branche :${NC}        $branch"
+    echo -e "  ${CYAN}Phase courante :${NC} $current_phase"
+    if [ "$is_final" = true ]; then
+        echo -e "  ${GREEN}Prochaine :${NC}      Amélioration terminée"
+    else
+        echo -e "  ${CYAN}Prochaine :${NC}      $next_phase"
+    fi
+    echo -e "  ${CYAN}Modifications :${NC}  $has_changes fichier(s)"
+    echo ""
+
+    if [ "$dry_run" = true ]; then
+        echo -e "${YELLOW}Mode dry-run — commandes qui seraient exécutées :${NC}"
+        echo ""
+        if [ "$has_changes" -gt 0 ]; then
+            echo "  git -C $PROJECT_DIR add -A"
+            echo "  git -C $PROJECT_DIR commit -m \"$commit_msg\""
+        else
+            echo "  (aucune modification à commiter)"
+        fi
+        if [ "$is_final" = false ]; then
+            echo "  # Mise à jour du ticket : Phase → $next_phase"
+            echo "  sed -i 's/^\\(\\*\\*Phase\\s*:\\*\\*\\).*/\\1 $next_phase/' $ticket"
+        fi
+        echo ""
+        echo -e "${YELLOW}Aucune action effectuée.${NC}"
+        return 0
+    fi
+
+    # 8. Exécuter
+    if [ "$has_changes" -gt 0 ]; then
+        git -C "$PROJECT_DIR" add -A
+        git -C "$PROJECT_DIR" commit -m "$commit_msg"
+        echo ""
+    else
+        echo -e "  ${YELLOW}Aucune modification à commiter${NC}"
+        echo ""
+    fi
+
+    # 9. Mettre à jour le ticket (sauf si terminée)
+    if [ "$is_final" = false ]; then
+        sed -i "s/^\(\*\*Phase\s*:\*\*\).*/\1 ${next_phase}/" "$ticket"
+        echo -e "  ${GREEN}✔${NC} Ticket mis à jour → Phase $next_phase"
+        # Commiter la mise à jour du ticket
+        git -C "$PROJECT_DIR" add "$ticket"
+        git -C "$PROJECT_DIR" commit -m "chore(${round_name}): ticket → phase ${next_phase}" --allow-empty
+    else
+        echo -e "  ${GREEN}✔${NC} Amélioration $round_name terminée"
+    fi
+}
+
 # ─── Commandes doc ───────────────────────────────────────────────────
 
 cmd_doc_needs() {
@@ -217,10 +350,11 @@ main() {
                 init)    cmd_dev_init "$@" ;;
                 ticket)  cmd_dev_ticket ;;
                 phase)   cmd_dev_phase ;;
+                advance) cmd_dev_advance "$@" ;;
                 log)     cmd_dev_log "$@" ;;
                 *)
                     echo -e "${RED}Commande dev inconnue : $subcmd${NC}"
-                    echo "Commandes disponibles : init, ticket, phase, log"
+                    echo "Commandes disponibles : init, ticket, phase, advance, log"
                     exit 1
                     ;;
             esac

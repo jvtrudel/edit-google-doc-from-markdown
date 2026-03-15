@@ -21,15 +21,15 @@ pub struct Cli {
 pub enum Command {
     /// Publier un fichier Markdown vers un Google Doc
     Push {
-        /// Chemin du fichier Markdown à publier
-        fichier: PathBuf,
+        /// Chemin du fichier Markdown à publier (optionnel si l'association existe)
+        fichier: Option<PathBuf>,
 
         /// Identifiant du Google Doc cible (optionnel si l'association existe)
         #[arg(long)]
         doc_id: Option<String>,
 
         /// Écraser le Google Doc même en cas de conflit détecté
-        #[arg(long, default_value_t = false)]
+        #[arg(short = 'f', long, default_value_t = false)]
         force: bool,
     },
 
