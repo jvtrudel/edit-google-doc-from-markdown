@@ -8,7 +8,10 @@
 //! Le style est géré séparément par le module `style`.
 
 use anyhow::Result;
-use google_docs1::api::{Document, Location, Paragraph, ParagraphStyle, StructuralElement, UpdateParagraphStyleRequest};
+use google_docs1::api::{
+    CreateParagraphBulletsRequest, Document, Link, Location, Paragraph, ParagraphStyle,
+    StructuralElement, TextStyle, UpdateParagraphStyleRequest, UpdateTextStyleRequest,
+};
 use google_docs1::FieldMask;
 use std::collections::HashMap;
 use tracing::debug;
@@ -41,6 +44,116 @@ pub enum LossKind {
     Content,
     /// Information de style non représentable (ex: couleur, police)
     Style,
+}
+
+/// Span de style inline : plage de caractères avec ses attributs visuels
+struct InlineSpan {
+    start: i32,
+    end: i32,
+    bold: bool,
+    italic: bool,
+    link: Option<String>,
+}
+
+/// Extrait le texte brut et les spans de style depuis des inlines Markdown.
+/// `doc_offset` : position absolue dans le document du début de ce texte.
+fn collect_inline_text(inlines: &[MdInline], doc_offset: i32) -> (String, Vec<InlineSpan>) {
+    let mut text = String::new();
+    let mut spans = Vec::new();
+    collect_spans_rec(inlines, doc_offset, false, false, None, &mut text, &mut spans);
+    (text, spans)
+}
+
+fn collect_spans_rec(
+    inlines: &[MdInline],
+    doc_offset: i32,
+    bold: bool,
+    italic: bool,
+    link: Option<&str>,
+    text: &mut String,
+    spans: &mut Vec<InlineSpan>,
+) {
+    for inline in inlines {
+        match inline {
+            MdInline::Text(s) | MdInline::Code(s) => {
+                let start = doc_offset + text.chars().count() as i32;
+                text.push_str(s);
+                let end = doc_offset + text.chars().count() as i32;
+                if (bold || italic || link.is_some()) && start < end {
+                    spans.push(InlineSpan { start, end, bold, italic, link: link.map(String::from) });
+                }
+            }
+            MdInline::Bold(inner) => {
+                collect_spans_rec(inner, doc_offset, true, italic, link, text, spans);
+            }
+            MdInline::Italic(inner) => {
+                collect_spans_rec(inner, doc_offset, bold, true, link, text, spans);
+            }
+            MdInline::Link { text: link_text, url } => {
+                let start = doc_offset + text.chars().count() as i32;
+                text.push_str(link_text);
+                let end = doc_offset + text.chars().count() as i32;
+                if start < end {
+                    spans.push(InlineSpan { start, end, bold, italic, link: Some(url.clone()) });
+                }
+            }
+            MdInline::LineBreak => text.push('\n'),
+        }
+    }
+}
+
+/// Convertit des spans de style en requêtes UpdateTextStyle
+fn make_style_requests(spans: &[InlineSpan]) -> Vec<google_docs1::api::Request> {
+    use google_docs1::api::{Range, Request};
+    spans.iter().filter_map(|span| {
+        let mut field_names: Vec<&str> = Vec::new();
+        if span.bold { field_names.push("bold"); }
+        if span.italic { field_names.push("italic"); }
+        if span.link.is_some() { field_names.push("link"); }
+        if field_names.is_empty() { return None; }
+
+        Some(Request {
+            update_text_style: Some(UpdateTextStyleRequest {
+                range: Some(Range {
+                    start_index: Some(span.start),
+                    end_index: Some(span.end),
+                    segment_id: None,
+                }),
+                text_style: Some(TextStyle {
+                    bold: span.bold.then_some(true),
+                    italic: span.italic.then_some(true),
+                    link: span.link.as_ref().map(|url| Link {
+                        url: Some(url.clone()),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+                fields: Some(FieldMask::new(&field_names)),
+            }),
+            ..Default::default()
+        })
+    }).collect()
+}
+
+/// Insère un paragraphe de texte et retourne les requêtes (insert + styles inline)
+fn insert_paragraph(
+    content: &[MdInline],
+    index: i32,
+) -> (Vec<google_docs1::api::Request>, i32) {
+    use google_docs1::api::{InsertTextRequest, Request};
+    let (plain, spans) = collect_inline_text(content, index);
+    let full_text = format!("{}\n", plain);
+    let len = full_text.chars().count() as i32;
+    let mut reqs = vec![Request {
+        insert_text: Some(InsertTextRequest {
+            text: Some(full_text),
+            location: Some(Location { index: Some(index), segment_id: None }),
+            end_of_segment_location: None,
+        }),
+        ..Default::default()
+    }];
+    reqs.extend(make_style_requests(&spans));
+    (reqs, len)
 }
 
 /// Convertit une représentation Markdown en requêtes Google Docs batchUpdate
@@ -78,16 +191,8 @@ pub fn markdown_to_gdoc_requests(
     for node in nodes {
         match node {
             MdNode::Heading { level, content } => {
-                let text = format!("{}\n", render_inline(content));
-                let len = text.chars().count() as i32;
-                requests.push(Request {
-                    insert_text: Some(InsertTextRequest {
-                        text: Some(text),
-                        location: Some(Location { index: Some(index), segment_id: None }),
-                        end_of_segment_location: None,
-                    }),
-                    ..Default::default()
-                });
+                let (reqs, len) = insert_paragraph(content, index);
+                requests.extend(reqs);
                 let style_type = match level {
                     1 => "HEADING_1",
                     2 => "HEADING_2",
@@ -98,7 +203,7 @@ pub fn markdown_to_gdoc_requests(
                 };
                 requests.push(Request {
                     update_paragraph_style: Some(UpdateParagraphStyleRequest {
-                        range: Some(google_docs1::api::Range {
+                        range: Some(Range {
                             start_index: Some(index),
                             end_index: Some(index + len),
                             segment_id: None,
@@ -114,63 +219,60 @@ pub fn markdown_to_gdoc_requests(
                 index += len;
             }
             MdNode::Paragraph { content } => {
-                let text = format!("{}\n", render_inline(content));
-                let len = text.chars().count() as i32;
-                requests.push(Request {
-                    insert_text: Some(InsertTextRequest {
-                        text: Some(text),
-                        location: Some(Location { index: Some(index), segment_id: None }),
-                        end_of_segment_location: None,
-                    }),
-                    ..Default::default()
-                });
+                let (reqs, len) = insert_paragraph(content, index);
+                requests.extend(reqs);
                 index += len;
             }
             MdNode::UnorderedList { items } => {
+                let list_start = index;
                 for item in items {
                     let inlines: Vec<_> = item.iter().flat_map(|n| match n {
                         MdNode::Paragraph { content } => content.clone(),
                         _ => vec![],
                     }).collect();
-                    let text = format!("- {}\n", render_inline(&inlines));
-                    let len = text.chars().count() as i32;
-                    requests.push(Request {
-                        insert_text: Some(InsertTextRequest {
-                            text: Some(text),
-                            location: Some(Location { index: Some(index), segment_id: None }),
-                            end_of_segment_location: None,
-                        }),
-                        ..Default::default()
-                    });
+                    let (reqs, len) = insert_paragraph(&inlines, index);
+                    requests.extend(reqs);
                     index += len;
                 }
+                requests.push(Request {
+                    create_paragraph_bullets: Some(CreateParagraphBulletsRequest {
+                        range: Some(Range {
+                            start_index: Some(list_start),
+                            end_index: Some(index),
+                            segment_id: None,
+                        }),
+                        bullet_preset: Some("BULLET_DISC_CIRCLE_SQUARE".to_string()),
+                    }),
+                    ..Default::default()
+                });
             }
-            MdNode::OrderedList { start, items } => {
-                let mut num = *start;
+            MdNode::OrderedList { items, .. } => {
+                let list_start = index;
                 for item in items {
                     let inlines: Vec<_> = item.iter().flat_map(|n| match n {
                         MdNode::Paragraph { content } => content.clone(),
                         _ => vec![],
                     }).collect();
-                    let text = format!("{}. {}\n", num, render_inline(&inlines));
-                    let len = text.chars().count() as i32;
-                    requests.push(Request {
-                        insert_text: Some(InsertTextRequest {
-                            text: Some(text),
-                            location: Some(Location { index: Some(index), segment_id: None }),
-                            end_of_segment_location: None,
-                        }),
-                        ..Default::default()
-                    });
+                    let (reqs, len) = insert_paragraph(&inlines, index);
+                    requests.extend(reqs);
                     index += len;
-                    num += 1;
                 }
+                requests.push(Request {
+                    create_paragraph_bullets: Some(CreateParagraphBulletsRequest {
+                        range: Some(Range {
+                            start_index: Some(list_start),
+                            end_index: Some(index),
+                            segment_id: None,
+                        }),
+                        bullet_preset: Some("NUMBERED_DECIMAL_ALPHA_ROMAN".to_string()),
+                    }),
+                    ..Default::default()
+                });
             }
             MdNode::CodeBlock { language, code } => {
-                let text = if let Some(lang) = language {
-                    format!("```{}\n{}\n```\n", lang, code)
-                } else {
-                    format!("```\n{}\n```\n", code)
+                let text = match language {
+                    Some(lang) => format!("```{}\n{}\n```\n", lang, code),
+                    None => format!("```\n{}\n```\n", code),
                 };
                 let len = text.chars().count() as i32;
                 requests.push(Request {
@@ -200,21 +302,6 @@ pub fn markdown_to_gdoc_requests(
     }
 
     Ok(ConversionResult { result: requests, losses })
-}
-
-fn render_inline(inlines: &[MdInline]) -> String {
-    let mut s = String::new();
-    for inline in inlines {
-        match inline {
-            MdInline::Text(t) => s.push_str(t),
-            MdInline::Bold(inner) => s.push_str(&format!("**{}**", render_inline(inner))),
-            MdInline::Italic(inner) => s.push_str(&format!("*{}*", render_inline(inner))),
-            MdInline::Link { text, url } => s.push_str(&format!("[{}]({})", text, url)),
-            MdInline::Code(code) => s.push_str(&format!("`{}`", code)),
-            MdInline::LineBreak => s.push_str("\n"),
-        }
-    }
-    s
 }
 
 /// Convertit un document Google Docs en représentation Markdown intermédiaire
