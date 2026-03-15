@@ -2,7 +2,8 @@
 
 **Branche :** `impl/push-to-google`  
 **Date :** 2026-03-14  
-**Phase :** 4 — Vérifier l'amélioration
+**Phase :** 5 — Consolider l'amélioration
+**Version :** v0.4.0
 **Type :** Implémentation
 
 ---

@@ -60,6 +60,7 @@ cmd_help() {
     echo "    dev ticket              Afficher le ticket de la ronde courante"
     echo "    dev phase               Afficher la phase courante"
     echo "    dev advance [--dry-run]  Commiter et passer à la phase suivante"
+    echo "    dev done [--dry-run]     Merger dans main, tagger et pousser"
     echo "    dev log \"description\"   Écrire une entrée de log"
     echo ""
     echo -e "${BOLD}COMMANDES DE DOCUMENTATION${NC}"
@@ -280,6 +281,99 @@ cmd_dev_advance() {
     fi
 }
 
+cmd_dev_done() {
+    local dry_run=false
+    for arg in "$@"; do
+        case "$arg" in
+            --dry-run) dry_run=true ;;
+        esac
+    done
+
+    # 1. Ronde courante
+    local round_dir
+    round_dir=$(get_current_round_dir)
+    if [ -z "$round_dir" ] || [ ! -f "$round_dir/ticket.md" ]; then
+        echo -e "${RED}Erreur : aucune ronde d'amélioration en cours${NC}"
+        exit 1
+    fi
+    local round_name
+    round_name=$(basename "$round_dir")
+
+    # 2. Branche courante
+    local branch
+    branch=$(git -C "$PROJECT_DIR" branch --show-current 2>/dev/null || echo "")
+    if [ -z "$branch" ] || [ "$branch" = "main" ]; then
+        echo -e "${RED}Erreur : déjà sur main ou branche inconnue${NC}"
+        exit 1
+    fi
+
+    # 3. Lire la version depuis Cargo.toml
+    local version
+    version=$(grep '^version' "$PROJECT_DIR/Cargo.toml" | head -1 | sed 's/version = "\(.*\)"/\1/')
+    if [ -z "$version" ]; then
+        echo -e "${RED}Erreur : impossible de lire la version dans Cargo.toml${NC}"
+        exit 1
+    fi
+    local tag="v${version}"
+
+    # 4. Vérifier les modifications non commitées
+    local has_changes
+    has_changes=$(git -C "$PROJECT_DIR" status --porcelain 2>/dev/null | wc -l)
+
+    # 5. Résumé
+    echo -e "${BOLD}nou dev done${NC}"
+    echo ""
+    echo -e "  ${CYAN}Ronde :${NC}    $round_name"
+    echo -e "  ${CYAN}Branche :${NC}  $branch → main"
+    echo -e "  ${CYAN}Version :${NC}  $tag"
+    echo -e "  ${CYAN}Modifs :${NC}   $has_changes fichier(s) non commités"
+    echo ""
+
+    if [ "$dry_run" = true ]; then
+        echo -e "${YELLOW}Mode dry-run — commandes qui seraient exécutées :${NC}"
+        echo ""
+        if [ "$has_changes" -gt 0 ]; then
+            echo "  git -C $PROJECT_DIR add -A"
+            echo "  git -C $PROJECT_DIR commit -m \"chore(${round_name}): consolidation avant publication\""
+        fi
+        echo "  git -C $PROJECT_DIR checkout main"
+        echo "  git -C $PROJECT_DIR merge --no-ff $branch -m \"feat: merge ${round_name} → main ($tag)\""
+        echo "  git -C $PROJECT_DIR tag $tag"
+        echo "  git -C $PROJECT_DIR push origin main"
+        echo "  git -C $PROJECT_DIR push origin $tag"
+        echo ""
+        echo -e "${YELLOW}Aucune action effectuée.${NC}"
+        return 0
+    fi
+
+    # 6. Commiter les modifications restantes
+    if [ "$has_changes" -gt 0 ]; then
+        echo -e "  ${CYAN}Commit des modifications restantes...${NC}"
+        git -C "$PROJECT_DIR" add -A
+        git -C "$PROJECT_DIR" commit -m "chore(${round_name}): consolidation avant publication"
+        echo ""
+    fi
+
+    # 7. Merge dans main
+    echo -e "  ${CYAN}Merge dans main...${NC}"
+    git -C "$PROJECT_DIR" checkout main
+    git -C "$PROJECT_DIR" merge --no-ff "$branch" -m "feat: merge ${round_name} → main ($tag)"
+    echo ""
+
+    # 8. Tag de version
+    echo -e "  ${CYAN}Tag $tag...${NC}"
+    git -C "$PROJECT_DIR" tag "$tag"
+    echo ""
+
+    # 9. Push
+    echo -e "  ${CYAN}Push...${NC}"
+    git -C "$PROJECT_DIR" push origin main
+    git -C "$PROJECT_DIR" push origin "$tag"
+    echo ""
+
+    echo -e "${GREEN}✔ Ronde $round_name publiée en $tag${NC}"
+}
+
 # ─── Commandes doc ───────────────────────────────────────────────────
 
 cmd_doc_needs() {
@@ -351,10 +445,11 @@ main() {
                 ticket)  cmd_dev_ticket ;;
                 phase)   cmd_dev_phase ;;
                 advance) cmd_dev_advance "$@" ;;
+                done)    cmd_dev_done "$@" ;;
                 log)     cmd_dev_log "$@" ;;
                 *)
                     echo -e "${RED}Commande dev inconnue : $subcmd${NC}"
-                    echo "Commandes disponibles : init, ticket, phase, advance, log"
+                    echo "Commandes disponibles : init, ticket, phase, advance, done, log"
                     exit 1
                     ;;
             esac

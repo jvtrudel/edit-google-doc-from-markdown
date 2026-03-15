@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.4.0 — 2026-03-15
+
+### Ajouté
+- **Commande `nou push` fonctionnelle** : publication d'un fichier Markdown vers un Google Doc existant
+  - Parsage Markdown complet (`markdown.rs::parse()`) via pulldown-cmark :
+    titres (h1-h6), paragraphes, gras, italique, liens, listes ord./non-ord., blocs de code, ligne horizontale
+  - Conversion en requêtes `batchUpdate` avec mise en forme native Google Docs :
+    - Titres → `UpdateParagraphStyleRequest` (`HEADING_1`…`HEADING_6`)
+    - Gras / italique / liens → `UpdateTextStyleRequest`
+    - Listes → `CreateParagraphBulletsRequest` (`BULLET_DISC_CIRCLE_SQUARE` / `NUMBERED_DECIMAL_ALPHA_ROMAN`)
+  - Premier push : `nou push fichier.md --doc-id DOC_ID` — crée l'association
+  - Pushes suivants : `nou push` — utilise la persistance
+  - Détection de conflit simplifiée : refus si le document distant est plus récent (sauf `--force`)
+- **18 nouveaux tests unitaires** :
+  - `parse()` isolé par type d'élément (titres, paragraphes, gras, italique, liens, listes, code, `---`)
+  - Round-trips `parse()` → `render()` (heading, paragraphe, liste, bloc de code)
+  - Structure des requêtes `markdown_to_gdoc_requests()` (delete, insert, index cumulatifs, pertes)
+- `SyncError::NoMapping` ajouté (`error.rs`)
+
+### Corrigé
+- `mapping.rs` : attribut `#![allow(dead_code)]` repositionné en tête de fichier
+- `converter.rs` : utilisation de `Location` (au lieu de `Range`) pour `InsertTextRequest` ; type `i32` pour les index
+- `markdown.rs` : migration vers l'API pulldown-cmark 0.12 (`TagEnd`, patterns struct `Tag::Heading`, `Tag::Link`)
+- `sync.rs::push()` : champs corrects de `SyncMetadata`, passage du chemin de clé SA, vérification de conflit sûre
+
+### Technique
+- `markdown_to_gdoc_requests()` accepte `doc_end_index: i32` pour calculer la plage de suppression sans dépasser le dernier `\n` du Body (contrainte API Google Docs)
+
+---
+
 ## v0.3.0 — 2026-03-14
 
 ### Ajouté

@@ -45,8 +45,14 @@ nou pull --force
 # Mode silencieux (erreurs seulement)
 nou -s pull
 
-# Publier ton Markdown vers un Google Doc (à venir)
+# Publier ton Markdown vers un Google Doc (première fois)
 nou push mon-document.md --doc-id <ID_DU_DOCUMENT>
+
+# Publier les modifications suivantes (mémorisé)
+nou push
+
+# Forcer même si le document distant a été modifié
+nou push --force
 
 # Voir l'état de synchronisation (à venir)
 nou status mon-document.md
