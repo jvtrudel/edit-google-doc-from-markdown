@@ -34,6 +34,16 @@ async fn main() -> Result<()> {
             doc_id,
             force,
         } => {
+            // Résoudre le fichier : argument ou persistance
+            let fichier = match fichier {
+                Some(f) => f,
+                None => match mapping::get_current_file()? {
+                    Some(f) => f,
+                    None => bail!(
+                        "Aucun fichier spécifié et aucun fichier courant.\nUtilisez : nou push <fichier.md> --doc-id <id>"
+                    ),
+                },
+            };
             info!("Push: {} → Google Docs", fichier.display());
             sync::push(&fichier, doc_id.as_deref(), force).await?;
         }

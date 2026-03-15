@@ -10,8 +10,7 @@
 
 use anyhow::Result;
 
-// Les imports pulldown-cmark seront activés lors de l'implémentation
-// use pulldown_cmark::{Event, Parser, Tag, TagEnd, HeadingLevel};
+use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag, TagEnd};
 
 /// Représentation intermédiaire d'un document Markdown
 ///
@@ -53,9 +52,173 @@ pub enum MdInline {
     LineBreak,
 }
 
+/// Contexte de l'inline stack pour le parsage
+enum InlineCtx {
+    Paragraph,
+    Heading(u8),
+    Item,
+    Bold,
+    Italic,
+    Link(String),
+}
+
+/// Collecte le texte brut d'une liste d'inlines (pour les liens)
+fn collect_text(inlines: &[MdInline]) -> String {
+    let mut s = String::new();
+    for inline in inlines {
+        match inline {
+            MdInline::Text(t) => s.push_str(t),
+            MdInline::Bold(inner) | MdInline::Italic(inner) => s.push_str(&collect_text(inner)),
+            MdInline::Link { text, .. } => s.push_str(text),
+            MdInline::Code(c) => s.push_str(c),
+            MdInline::LineBreak => s.push(' '),
+        }
+    }
+    s
+}
+
 /// Parse un fichier Markdown en représentation intermédiaire
-pub fn parse(_markdown: &str) -> Result<Vec<MdNode>> {
-    todo!("Implémenter le parsage Markdown → MdNode via pulldown-cmark")
+pub fn parse(markdown: &str) -> Result<Vec<MdNode>> {
+    let parser = Parser::new(markdown);
+    let mut nodes = Vec::new();
+
+    // Stack de contextes inline imbriqués : (contexte, inlines_accumulés)
+    let mut inline_stack: Vec<(InlineCtx, Vec<MdInline>)> = Vec::new();
+
+    // Stack pour les listes : (ordered, start, items)
+    let mut list_stack: Vec<(bool, u64, Vec<Vec<MdNode>>)> = Vec::new();
+
+    // Bloc de code en cours
+    let mut code_block: Option<(Option<String>, String)> = None;
+
+    for event in parser {
+        match event {
+            Event::Start(tag) => match tag {
+                Tag::Heading { level, .. } => {
+                    inline_stack.push((InlineCtx::Heading(level as u8), Vec::new()));
+                }
+                Tag::Paragraph => {
+                    inline_stack.push((InlineCtx::Paragraph, Vec::new()));
+                }
+                Tag::List(Some(start)) => {
+                    list_stack.push((true, start, Vec::new()));
+                }
+                Tag::List(None) => {
+                    list_stack.push((false, 1, Vec::new()));
+                }
+                Tag::Item => {
+                    inline_stack.push((InlineCtx::Item, Vec::new()));
+                }
+                Tag::CodeBlock(kind) => {
+                    let lang = match kind {
+                        CodeBlockKind::Fenced(s) => {
+                            let s = s.trim().to_string();
+                            if s.is_empty() { None } else { Some(s) }
+                        }
+                        CodeBlockKind::Indented => None,
+                    };
+                    code_block = Some((lang, String::new()));
+                }
+                Tag::Strong => {
+                    inline_stack.push((InlineCtx::Bold, Vec::new()));
+                }
+                Tag::Emphasis => {
+                    inline_stack.push((InlineCtx::Italic, Vec::new()));
+                }
+                Tag::Link { dest_url, .. } => {
+                    inline_stack.push((InlineCtx::Link(dest_url.to_string()), Vec::new()));
+                }
+                _ => {}
+            },
+            Event::End(tag) => match tag {
+                TagEnd::Heading(_) => {
+                    if let Some((InlineCtx::Heading(level), content)) = inline_stack.pop() {
+                        nodes.push(MdNode::Heading { level, content });
+                    }
+                }
+                TagEnd::Paragraph => {
+                    if let Some((InlineCtx::Paragraph, content)) = inline_stack.pop() {
+                        // Si le parent est un Item, ajouter le contenu à l'item
+                        if matches!(inline_stack.last(), Some((InlineCtx::Item, _))) {
+                            if let Some((_, item_inlines)) = inline_stack.last_mut() {
+                                item_inlines.extend(content);
+                            }
+                        } else if !content.is_empty() {
+                            nodes.push(MdNode::Paragraph { content });
+                        }
+                    }
+                }
+                TagEnd::List(_) => {
+                    if let Some((ordered, start, items)) = list_stack.pop() {
+                        if !items.is_empty() {
+                            if ordered {
+                                nodes.push(MdNode::OrderedList { start, items });
+                            } else {
+                                nodes.push(MdNode::UnorderedList { items });
+                            }
+                        }
+                    }
+                }
+                TagEnd::Item => {
+                    if let Some((InlineCtx::Item, content)) = inline_stack.pop() {
+                        if let Some((_, _, items)) = list_stack.last_mut() {
+                            items.push(vec![MdNode::Paragraph { content }]);
+                        }
+                    }
+                }
+                TagEnd::CodeBlock => {
+                    if let Some((lang, code)) = code_block.take() {
+                        nodes.push(MdNode::CodeBlock { language: lang, code });
+                    }
+                }
+                TagEnd::Strong => {
+                    if let Some((InlineCtx::Bold, inner)) = inline_stack.pop() {
+                        if let Some((_, parent)) = inline_stack.last_mut() {
+                            parent.push(MdInline::Bold(inner));
+                        }
+                    }
+                }
+                TagEnd::Emphasis => {
+                    if let Some((InlineCtx::Italic, inner)) = inline_stack.pop() {
+                        if let Some((_, parent)) = inline_stack.last_mut() {
+                            parent.push(MdInline::Italic(inner));
+                        }
+                    }
+                }
+                TagEnd::Link => {
+                    if let Some((InlineCtx::Link(url), inner)) = inline_stack.pop() {
+                        let text = collect_text(&inner);
+                        if let Some((_, parent)) = inline_stack.last_mut() {
+                            parent.push(MdInline::Link { text, url });
+                        }
+                    }
+                }
+                _ => {}
+            },
+            Event::Text(text) => {
+                if let Some((_, ref mut code)) = code_block {
+                    code.push_str(&text);
+                } else if let Some((_, inlines)) = inline_stack.last_mut() {
+                    inlines.push(MdInline::Text(text.to_string()));
+                }
+            }
+            Event::Code(code) => {
+                if let Some((_, inlines)) = inline_stack.last_mut() {
+                    inlines.push(MdInline::Code(code.to_string()));
+                }
+            }
+            Event::SoftBreak | Event::HardBreak => {
+                if let Some((_, inlines)) = inline_stack.last_mut() {
+                    inlines.push(MdInline::LineBreak);
+                }
+            }
+            Event::Rule => {
+                nodes.push(MdNode::HorizontalRule);
+            }
+            _ => {}
+        }
+    }
+    Ok(nodes)
 }
 
 /// Génère du Markdown stable et déterministe à partir de la représentation intermédiaire
@@ -337,5 +500,145 @@ mod tests {
         ];
         let result = render(&nodes);
         assert_eq!(result, "# Titre\n\nContenu\n");
+    }
+
+    // --- Tests pour parse() ---
+
+    #[test]
+    fn test_parse_heading() {
+        let nodes = parse("# Titre principal\n").unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(
+            nodes[0],
+            MdNode::Heading {
+                level: 1,
+                content: vec![MdInline::Text("Titre principal".to_string())],
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_heading_levels() {
+        for level in 1u8..=6 {
+            let md = format!("{} Titre\n", "#".repeat(level as usize));
+            let nodes = parse(&md).unwrap();
+            assert_eq!(nodes.len(), 1);
+            assert!(matches!(&nodes[0], MdNode::Heading { level: l, .. } if *l == level));
+        }
+    }
+
+    #[test]
+    fn test_parse_paragraph() {
+        let nodes = parse("Du texte simple.\n").unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(
+            nodes[0],
+            MdNode::Paragraph {
+                content: vec![MdInline::Text("Du texte simple.".to_string())],
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_bold() {
+        let nodes = parse("Du **gras** ici.\n").unwrap();
+        assert_eq!(nodes.len(), 1);
+        if let MdNode::Paragraph { content } = &nodes[0] {
+            assert!(content.iter().any(|i| matches!(i, MdInline::Bold(_))));
+        } else {
+            panic!("attendu un paragraphe");
+        }
+    }
+
+    #[test]
+    fn test_parse_italic() {
+        let nodes = parse("Du *italique* ici.\n").unwrap();
+        assert_eq!(nodes.len(), 1);
+        if let MdNode::Paragraph { content } = &nodes[0] {
+            assert!(content.iter().any(|i| matches!(i, MdInline::Italic(_))));
+        } else {
+            panic!("attendu un paragraphe");
+        }
+    }
+
+    #[test]
+    fn test_parse_link() {
+        let nodes = parse("[Google](https://google.com)\n").unwrap();
+        assert_eq!(nodes.len(), 1);
+        if let MdNode::Paragraph { content } = &nodes[0] {
+            assert!(content.iter().any(|i| matches!(i, MdInline::Link { url, .. } if url == "https://google.com")));
+        } else {
+            panic!("attendu un paragraphe");
+        }
+    }
+
+    #[test]
+    fn test_parse_unordered_list() {
+        let nodes = parse("- Item A\n- Item B\n").unwrap();
+        assert_eq!(nodes.len(), 1);
+        if let MdNode::UnorderedList { items } = &nodes[0] {
+            assert_eq!(items.len(), 2);
+        } else {
+            panic!("attendu une liste non-ordonnée");
+        }
+    }
+
+    #[test]
+    fn test_parse_ordered_list() {
+        let nodes = parse("1. Premier\n2. Deuxième\n").unwrap();
+        assert_eq!(nodes.len(), 1);
+        if let MdNode::OrderedList { items, .. } = &nodes[0] {
+            assert_eq!(items.len(), 2);
+        } else {
+            panic!("attendu une liste ordonnée");
+        }
+    }
+
+    #[test]
+    fn test_parse_code_block() {
+        let nodes = parse("```rust\nfn main() {}\n```\n").unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert!(matches!(
+            &nodes[0],
+            MdNode::CodeBlock { language: Some(lang), .. } if lang == "rust"
+        ));
+    }
+
+    #[test]
+    fn test_parse_horizontal_rule() {
+        let nodes = parse("---\n").unwrap();
+        assert!(nodes.contains(&MdNode::HorizontalRule));
+    }
+
+    #[test]
+    fn test_parse_round_trip_heading() {
+        let original = "# Mon titre\n";
+        let nodes = parse(original).unwrap();
+        let rendered = render(&nodes);
+        assert_eq!(rendered, original);
+    }
+
+    #[test]
+    fn test_parse_round_trip_paragraph() {
+        let original = "Un paragraphe simple.\n";
+        let nodes = parse(original).unwrap();
+        let rendered = render(&nodes);
+        assert_eq!(rendered, original);
+    }
+
+    #[test]
+    fn test_parse_round_trip_unordered_list() {
+        let original = "- Item 1\n- Item 2\n";
+        let nodes = parse(original).unwrap();
+        let rendered = render(&nodes);
+        assert_eq!(rendered, original);
+    }
+
+    #[test]
+    fn test_parse_round_trip_code_block() {
+        let original = "```rust\nfn main() {}\n```\n";
+        let nodes = parse(original).unwrap();
+        let rendered = render(&nodes);
+        assert_eq!(rendered, original);
     }
 }

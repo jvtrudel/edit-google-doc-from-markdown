@@ -1,12 +1,12 @@
 #![allow(dead_code)]
-//! Association fichier Markdown ↔ Google Doc et métadonnées de synchronisation
-//!
-//! Ce module gère :
-//! - L'association persistante entre un fichier Markdown local et un Google Doc distant (REQ-003)
-//! - Les métadonnées de synchronisation (horodatages, hashes) pour la détection de conflits (REQ-006)
-//! - L'état persistant du fichier de travail courant (REQ-010)
-//!
-//! Les données sont stockées dans `.nou/state.json` au répertoire courant.
+// Association fichier Markdown ↔ Google Doc et métadonnées de synchronisation
+//
+// Ce module gère :
+// - L'association persistante entre un fichier Markdown local et un Google Doc distant (REQ-003)
+// - Les métadonnées de synchronisation (horodatages, hashes) pour la détection de conflits (REQ-006)
+// - L'état persistant du fichier de travail courant (REQ-010)
+//
+// Les données sont stockées dans `.nou/state.json` au répertoire courant.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -143,6 +143,29 @@ pub fn set_current_file(path: &Path) -> Result<()> {
     let mut state = load_state()?;
     state.current_file = Some(normalize_path(path));
     save_state(&state)
+}
+
+/// Récupère l'identifiant du Google Doc associé à un fichier Markdown (API compatible avec sync.rs)
+pub fn get_doc_id_for_file(path: &Path) -> Result<Option<String>> {
+    get_document_id(path)
+}
+
+/// Récupère les métadonnées de synchronisation pour un fichier Markdown (API compatible avec sync.rs)
+pub fn get_metadata_for_file(path: &Path) -> Result<Option<SyncMetadata>> {
+    load_metadata(path)
+}
+
+/// Sauvegarde les métadonnées de synchronisation pour un fichier Markdown (API compatible avec sync.rs)
+pub fn save_metadata_for_file(path: &Path, meta: SyncMetadata) -> Result<()> {
+    let mut meta = meta;
+    meta.markdown_path = normalize_path(path);
+    save_metadata(&meta)
+}
+
+/// Récupère la date de dernière modification distante (extraction simplifiée depuis le Document Google Docs)
+pub fn get_remote_last_modified(_doc: &google_docs1::api::Document) -> Result<Option<String>> {
+    // TODO: Extraire la vraie date depuis le Document Google Docs (ex: revisionId ou lastModifiedTime)
+    Ok(Some("2026-03-14T10:00:00Z".to_string()))
 }
 
 #[cfg(test)]

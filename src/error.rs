@@ -14,10 +14,12 @@ pub enum SyncError {
         remote_modified: String,
     },
 
-    /// Aucune association trouvée pour ce fichier
-    #[error(
-        "Aucune association trouvée pour '{path}'. Utilisez --doc-id pour spécifier le Google Doc."
-    )]
+    /// Aucune association trouvée pour ce fichier (utilisé par sync.rs)
+    #[error("Aucune association trouvée pour ce fichier Markdown. Utilisez --doc-id pour spécifier le Google Doc.")]
+    NoDocId,
+
+    /// Aucune association de mapping trouvée pour ce fichier (utilisé par pull)
+    #[error("Aucune association trouvée pour '{path}'. Utilisez --doc-id pour spécifier le Google Doc.")]
     NoMapping { path: String },
 
     /// Le fichier Markdown n'existe pas
