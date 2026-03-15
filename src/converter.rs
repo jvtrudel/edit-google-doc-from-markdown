@@ -8,9 +8,11 @@
 //! Le style est géré séparément par le module `style`.
 
 use anyhow::Result;
-use google_docs1::api::Document;
+use google_docs1::api::{Document, Paragraph, StructuralElement};
+use std::collections::HashMap;
+use tracing::debug;
 
-use crate::markdown::MdNode;
+use crate::markdown::{MdInline, MdNode};
 
 /// Résultat d'une conversion avec les éventuelles pertes d'information
 pub struct ConversionResult<T> {
@@ -53,8 +55,505 @@ pub fn markdown_to_gdoc_requests(
 ///
 /// Extrait le contenu sémantique du document. Le style est ignoré ici
 /// (il est extrait séparément par le module `style`).
-pub fn gdoc_to_markdown(
-    _document: &Document,
-) -> Result<ConversionResult<Vec<MdNode>>> {
-    todo!("Implémenter la conversion Document Google Docs → MdNode")
+pub fn gdoc_to_markdown(document: &Document) -> Result<ConversionResult<Vec<MdNode>>> {
+    let mut nodes: Vec<MdNode> = Vec::new();
+    let mut losses: Vec<InformationLoss> = Vec::new();
+
+    // Récupérer les éléments structurels du body
+    let elements = match &document.body {
+        Some(body) => body.content.as_deref().unwrap_or(&[]),
+        None => &[],
+    };
+
+    // Récupérer la map des listes pour déterminer le type (ordonnée vs non-ordonnée)
+    let lists = document.lists.as_ref();
+
+    // Accumulateur pour regrouper les paragraphes-bullet consécutifs en listes
+    let mut bullet_acc: Vec<BulletItem> = Vec::new();
+
+    for element in elements {
+        if let Some(paragraph) = &element.paragraph
+            && paragraph.bullet.is_some()
+        {
+            // Ce paragraphe fait partie d'une liste — accumuler
+            let item = extract_bullet_item(paragraph, lists, &mut losses);
+            bullet_acc.push(item);
+            continue;
+        }
+
+        // Si on arrive ici, le paragraphe n'est pas un bullet.
+        // Vider l'accumulateur de liste d'abord.
+        if !bullet_acc.is_empty() {
+            let list_nodes = flush_bullet_accumulator(&mut bullet_acc);
+            nodes.extend(list_nodes);
+        }
+
+        // Traiter l'élément courant
+        if let Some(node) = convert_structural_element(element, &mut losses) {
+            nodes.push(node);
+        }
+    }
+
+    // Vider l'accumulateur de liste en fin de document
+    if !bullet_acc.is_empty() {
+        let list_nodes = flush_bullet_accumulator(&mut bullet_acc);
+        nodes.extend(list_nodes);
+    }
+
+    Ok(ConversionResult {
+        result: nodes,
+        losses,
+    })
+}
+
+/// Élément de liste accumulé avant regroupement
+struct BulletItem {
+    /// Contenu inline du paragraphe
+    inlines: Vec<MdInline>,
+    /// Niveau d'imbrication (0 = racine)
+    nesting_level: i32,
+    /// true si la liste est ordonnée
+    ordered: bool,
+    /// Numéro de départ pour les listes ordonnées
+    start_number: u64,
+    /// Identifiant de la liste
+    list_id: String,
+}
+
+/// Extrait les informations d'un paragraphe-bullet
+fn extract_bullet_item(
+    paragraph: &Paragraph,
+    lists: Option<&HashMap<String, google_docs1::api::List>>,
+    losses: &mut Vec<InformationLoss>,
+) -> BulletItem {
+    let bullet = paragraph.bullet.as_ref().unwrap();
+    let list_id = bullet.list_id.clone().unwrap_or_default();
+    let nesting_level = bullet.nesting_level.unwrap_or(0);
+
+    // Déterminer si la liste est ordonnée via les propriétés de liste
+    let (ordered, start_number) = if let Some(lists_map) = lists {
+        if let Some(list) = lists_map.get(&list_id) {
+            if let Some(props) = &list.list_properties {
+                if let Some(levels) = &props.nesting_levels {
+                    if let Some(level) = levels.get(nesting_level as usize) {
+                        // Si glyph_type est défini et que glyph_symbol ne l'est pas,
+                        // c'est une liste ordonnée
+                        let is_ordered = level.glyph_type.is_some() && level.glyph_symbol.is_none();
+                        let start = level.start_number.unwrap_or(1).max(1) as u64;
+                        (is_ordered, start)
+                    } else {
+                        (false, 1)
+                    }
+                } else {
+                    (false, 1)
+                }
+            } else {
+                (false, 1)
+            }
+        } else {
+            (false, 1)
+        }
+    } else {
+        (false, 1)
+    };
+
+    let inlines = extract_paragraph_inlines(paragraph, losses);
+
+    BulletItem {
+        inlines,
+        nesting_level,
+        ordered,
+        start_number,
+        list_id,
+    }
+}
+
+/// Regroupe les éléments bullet accumulés en nœuds de liste MdNode
+fn flush_bullet_accumulator(acc: &mut Vec<BulletItem>) -> Vec<MdNode> {
+    let items: Vec<BulletItem> = std::mem::take(acc);
+    build_list_nodes(&items, 0, 0, items.len())
+}
+
+/// Construit récursivement les nœuds de liste à partir des éléments bullet
+fn build_list_nodes(
+    items: &[BulletItem],
+    target_level: i32,
+    start: usize,
+    end: usize,
+) -> Vec<MdNode> {
+    if start >= end {
+        return Vec::new();
+    }
+
+    let mut result: Vec<MdNode> = Vec::new();
+    let mut i = start;
+
+    while i < end {
+        let item = &items[i];
+
+        if item.nesting_level < target_level {
+            // On est sorti du niveau courant
+            break;
+        }
+
+        if item.nesting_level == target_level {
+            // Cet item est au bon niveau — trouver ses sous-items
+            let mut sub_end = i + 1;
+            while sub_end < end && items[sub_end].nesting_level > target_level {
+                sub_end += 1;
+            }
+
+            // Construire le contenu de cet item
+            let mut item_content = vec![MdNode::Paragraph {
+                content: item.inlines.clone(),
+            }];
+
+            // Ajouter les sous-listes
+            if sub_end > i + 1 {
+                let sub_nodes = build_list_nodes(items, target_level + 1, i + 1, sub_end);
+                item_content.extend(sub_nodes);
+            }
+
+            // Accumuler les items pour ce groupe de liste
+            // On crée une seule liste par groupe consécutif de même type
+            let is_new_list = result.is_empty() || !matches_list_type(result.last(), item.ordered);
+
+            if is_new_list {
+                if item.ordered {
+                    result.push(MdNode::OrderedList {
+                        start: item.start_number,
+                        items: vec![item_content],
+                    });
+                } else {
+                    result.push(MdNode::UnorderedList {
+                        items: vec![item_content],
+                    });
+                }
+            } else {
+                // Ajouter à la liste existante
+                match result.last_mut() {
+                    Some(MdNode::OrderedList {
+                        items: list_items, ..
+                    })
+                    | Some(MdNode::UnorderedList {
+                        items: list_items, ..
+                    }) => {
+                        list_items.push(item_content);
+                    }
+                    _ => unreachable!(),
+                }
+            }
+
+            i = sub_end;
+        } else {
+            // item.nesting_level > target_level — sous-items orphelins, les traiter comme racine
+            i += 1;
+        }
+    }
+
+    result
+}
+
+/// Vérifie si le dernier nœud est une liste du même type
+fn matches_list_type(node: Option<&MdNode>, ordered: bool) -> bool {
+    matches!(
+        (node, ordered),
+        (Some(MdNode::OrderedList { .. }), true) | (Some(MdNode::UnorderedList { .. }), false)
+    )
+}
+
+/// Convertit un élément structurel en MdNode
+fn convert_structural_element(
+    element: &StructuralElement,
+    losses: &mut Vec<InformationLoss>,
+) -> Option<MdNode> {
+    if let Some(paragraph) = &element.paragraph {
+        return convert_paragraph(paragraph, losses);
+    }
+
+    if element.table.is_some() {
+        losses.push(InformationLoss {
+            kind: LossKind::Content,
+            description: "Table ignorée (non supportée en Markdown simple)".to_string(),
+            position: element.start_index.map(|i| format!("index {}", i)),
+        });
+    }
+
+    if element.table_of_contents.is_some() {
+        losses.push(InformationLoss {
+            kind: LossKind::Content,
+            description: "Table des matières ignorée".to_string(),
+            position: element.start_index.map(|i| format!("index {}", i)),
+        });
+    }
+
+    // section_break → ignoré silencieusement
+    None
+}
+
+/// Convertit un paragraphe Google Docs en MdNode
+fn convert_paragraph(paragraph: &Paragraph, losses: &mut Vec<InformationLoss>) -> Option<MdNode> {
+    let inlines = extract_paragraph_inlines(paragraph, losses);
+
+    // Paragraphe vide → ignorer
+    if inlines.is_empty() {
+        return None;
+    }
+
+    // Déterminer le type via named_style_type
+    let style_type = paragraph
+        .paragraph_style
+        .as_ref()
+        .and_then(|s| s.named_style_type.as_deref())
+        .unwrap_or("NORMAL_TEXT");
+
+    match style_type {
+        "HEADING_1" => Some(MdNode::Heading {
+            level: 1,
+            content: inlines,
+        }),
+        "HEADING_2" => Some(MdNode::Heading {
+            level: 2,
+            content: inlines,
+        }),
+        "HEADING_3" => Some(MdNode::Heading {
+            level: 3,
+            content: inlines,
+        }),
+        "HEADING_4" => Some(MdNode::Heading {
+            level: 4,
+            content: inlines,
+        }),
+        "HEADING_5" => Some(MdNode::Heading {
+            level: 5,
+            content: inlines,
+        }),
+        "HEADING_6" => Some(MdNode::Heading {
+            level: 6,
+            content: inlines,
+        }),
+        _ => Some(MdNode::Paragraph { content: inlines }),
+    }
+}
+
+/// Extrait les éléments inline d'un paragraphe
+fn extract_paragraph_inlines(
+    paragraph: &Paragraph,
+    losses: &mut Vec<InformationLoss>,
+) -> Vec<MdInline> {
+    let elements = match &paragraph.elements {
+        Some(elems) => elems,
+        None => return Vec::new(),
+    };
+
+    let mut inlines: Vec<MdInline> = Vec::new();
+
+    for elem in elements {
+        if let Some(text_run) = &elem.text_run {
+            let content = text_run.content.as_deref().unwrap_or("");
+
+            // Google Docs ajoute un \n en fin de chaque paragraphe — l'ignorer
+            let content = content.strip_suffix('\n').unwrap_or(content);
+
+            if content.is_empty() {
+                continue;
+            }
+
+            let inline = convert_text_run(content, &text_run.text_style);
+            inlines.push(inline);
+        } else if elem.inline_object_element.is_some() {
+            losses.push(InformationLoss {
+                kind: LossKind::Content,
+                description: "Objet inline (image, etc.) ignoré".to_string(),
+                position: elem.start_index.map(|i| format!("index {}", i)),
+            });
+        } else if elem.horizontal_rule.is_some() {
+            // Les règles horizontales dans Google Docs sont des ParagraphElement,
+            // mais on ne peut pas les intégrer comme inline.
+            // On les ignore ici — elles devraient être traitées comme blocs.
+            debug!(
+                "Règle horizontale trouvée comme ParagraphElement — traitée comme MdInline::Text"
+            );
+        }
+    }
+
+    inlines
+}
+
+/// Convertit un TextRun en MdInline, en tenant compte du style (gras, italique, lien)
+fn convert_text_run(content: &str, text_style: &Option<google_docs1::api::TextStyle>) -> MdInline {
+    let base = MdInline::Text(content.to_string());
+
+    let style = match text_style {
+        Some(s) => s,
+        None => return base,
+    };
+
+    // Vérifier s'il y a un lien
+    if let Some(link) = &style.link
+        && let Some(url) = &link.url
+    {
+        return MdInline::Link {
+            text: content.to_string(),
+            url: url.clone(),
+        };
+    }
+
+    let is_bold = style.bold.unwrap_or(false);
+    let is_italic = style.italic.unwrap_or(false);
+
+    match (is_bold, is_italic) {
+        (true, true) => MdInline::Bold(vec![MdInline::Italic(vec![MdInline::Text(
+            content.to_string(),
+        )])]),
+        (true, false) => MdInline::Bold(vec![MdInline::Text(content.to_string())]),
+        (false, true) => MdInline::Italic(vec![MdInline::Text(content.to_string())]),
+        (false, false) => base,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use google_docs1::api::{
+        Body, Document, Paragraph, ParagraphElement, ParagraphStyle, StructuralElement, TextRun,
+        TextStyle,
+    };
+
+    /// Crée un Document minimal avec un seul paragraphe de texte
+    fn make_simple_doc(text: &str) -> Document {
+        Document {
+            body: Some(Body {
+                content: Some(vec![StructuralElement {
+                    paragraph: Some(Paragraph {
+                        elements: Some(vec![ParagraphElement {
+                            text_run: Some(TextRun {
+                                content: Some(format!("{}\n", text)),
+                                text_style: None,
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        }]),
+                        paragraph_style: Some(ParagraphStyle {
+                            named_style_type: Some("NORMAL_TEXT".to_string()),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }]),
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_simple_paragraph() {
+        let doc = make_simple_doc("Bonjour le monde");
+        let result = gdoc_to_markdown(&doc).unwrap();
+
+        assert_eq!(result.result.len(), 1);
+        assert_eq!(
+            result.result[0],
+            MdNode::Paragraph {
+                content: vec![MdInline::Text("Bonjour le monde".to_string())]
+            }
+        );
+        assert!(result.losses.is_empty());
+    }
+
+    #[test]
+    fn test_heading() {
+        let doc = Document {
+            body: Some(Body {
+                content: Some(vec![StructuralElement {
+                    paragraph: Some(Paragraph {
+                        elements: Some(vec![ParagraphElement {
+                            text_run: Some(TextRun {
+                                content: Some("Mon titre\n".to_string()),
+                                text_style: None,
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        }]),
+                        paragraph_style: Some(ParagraphStyle {
+                            named_style_type: Some("HEADING_1".to_string()),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }]),
+            }),
+            ..Default::default()
+        };
+
+        let result = gdoc_to_markdown(&doc).unwrap();
+        assert_eq!(result.result.len(), 1);
+        assert_eq!(
+            result.result[0],
+            MdNode::Heading {
+                level: 1,
+                content: vec![MdInline::Text("Mon titre".to_string())]
+            }
+        );
+    }
+
+    #[test]
+    fn test_bold_text() {
+        let doc = Document {
+            body: Some(Body {
+                content: Some(vec![StructuralElement {
+                    paragraph: Some(Paragraph {
+                        elements: Some(vec![ParagraphElement {
+                            text_run: Some(TextRun {
+                                content: Some("gras\n".to_string()),
+                                text_style: Some(TextStyle {
+                                    bold: Some(true),
+                                    ..Default::default()
+                                }),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        }]),
+                        paragraph_style: Some(ParagraphStyle {
+                            named_style_type: Some("NORMAL_TEXT".to_string()),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }]),
+            }),
+            ..Default::default()
+        };
+
+        let result = gdoc_to_markdown(&doc).unwrap();
+        assert_eq!(
+            result.result[0],
+            MdNode::Paragraph {
+                content: vec![MdInline::Bold(vec![MdInline::Text("gras".to_string())])]
+            }
+        );
+    }
+
+    #[test]
+    fn test_empty_document() {
+        let doc = Document {
+            body: None,
+            ..Default::default()
+        };
+        let result = gdoc_to_markdown(&doc).unwrap();
+        assert!(result.result.is_empty());
+        assert!(result.losses.is_empty());
+    }
+
+    #[test]
+    fn test_conversion_then_render_stability() {
+        let doc = make_simple_doc("Un paragraphe simple");
+        let result = gdoc_to_markdown(&doc).unwrap();
+        let md1 = crate::markdown::render(&result.result);
+        let md2 = crate::markdown::render(&result.result);
+        assert_eq!(md1, md2, "Le rendu doit être déterministe");
+    }
 }

@@ -7,7 +7,7 @@ mod markdown;
 mod style;
 mod sync;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use clap::Parser;
 use tracing::info;
 
@@ -29,11 +29,29 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Push { fichier, doc_id, force } => {
+        Command::Push {
+            fichier,
+            doc_id,
+            force,
+        } => {
             info!("Push: {} → Google Docs", fichier.display());
             sync::push(&fichier, doc_id.as_deref(), force).await?;
         }
-        Command::Pull { fichier, doc_id, force } => {
+        Command::Pull {
+            fichier,
+            doc_id,
+            force,
+        } => {
+            // Résoudre le fichier : argument ou persistance
+            let fichier = match fichier {
+                Some(f) => f,
+                None => match mapping::get_current_file()? {
+                    Some(f) => f,
+                    None => bail!(
+                        "Aucun fichier spécifié et aucun fichier courant.\nUtilisez : nou pull <fichier.md> --doc-id <id>"
+                    ),
+                },
+            };
             info!("Pull: Google Docs → {}", fichier.display());
             sync::pull(&fichier, doc_id.as_deref(), force).await?;
         }
@@ -45,4 +63,3 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-

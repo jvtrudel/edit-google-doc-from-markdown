@@ -3,7 +3,11 @@ use std::path::PathBuf;
 
 /// Outil de synchronisation Markdown ↔ Google Docs
 #[derive(Parser)]
-#[command(name = "nou", version, about = "Synchronisation Markdown ↔ Google Docs")]
+#[command(
+    name = "nou",
+    version,
+    about = "Synchronisation Markdown ↔ Google Docs"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
@@ -27,15 +31,15 @@ pub enum Command {
 
     /// Récupérer un Google Doc en fichier Markdown
     Pull {
-        /// Chemin du fichier Markdown de destination
-        fichier: PathBuf,
+        /// Chemin du fichier Markdown de destination (optionnel si l'association existe)
+        fichier: Option<PathBuf>,
 
         /// Identifiant du Google Doc source (optionnel si l'association existe)
         #[arg(long)]
         doc_id: Option<String>,
 
         /// Écraser le fichier local même en cas de conflit détecté
-        #[arg(long, default_value_t = false)]
+        #[arg(short = 'f', long, default_value_t = false)]
         force: bool,
     },
 

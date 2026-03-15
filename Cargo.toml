@@ -24,6 +24,9 @@ dotenvy = "0.15"
 anyhow = "1"
 thiserror = "2"
 
+# Date/heure
+chrono = "0.4"
+
 # Google Docs API (v5 utilise hyper 0.14 et yup-oauth2 v9)
 google-docs1 = "5"
 yup-oauth2 = "9"
@@ -33,3 +36,6 @@ hyper-rustls = { version = "0.24", features = ["native-tokio", "http1"] }
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -6,10 +6,10 @@
 //! du style sont déléguées aux modules `converter` et `style`.
 
 use anyhow::{Context, Result};
+use google_docs1::Docs;
 use google_docs1::api::BatchUpdateDocumentRequest;
 use google_docs1::api::Document;
 use google_docs1::api::Request;
-use google_docs1::Docs;
 use hyper::Client;
 use hyper_rustls::HttpsConnectorBuilder;
 use yup_oauth2::{ServiceAccountAuthenticator, read_service_account_key};
@@ -22,9 +22,23 @@ pub struct GoogleDocsClient {
 impl GoogleDocsClient {
     /// Crée un nouveau client en utilisant un fichier de clé de compte de service
     pub async fn new(service_account_key_path: &str) -> Result<Self> {
+        let key_path = std::path::Path::new(service_account_key_path);
+        if !key_path.exists() {
+            anyhow::bail!(
+                "Fichier de clé du compte de service introuvable : '{}'. \
+                 Définissez la variable d'environnement SERVICE_ACCOUNT_KEY_PATH \
+                 ou placez le fichier 'service-account.json' dans le répertoire courant.",
+                service_account_key_path
+            );
+        }
+
         let sa_key = read_service_account_key(service_account_key_path)
             .await
-            .context("Impossible de lire le fichier de clé du compte de service")?;
+            .with_context(|| format!(
+                "Impossible de lire le fichier de clé du compte de service '{}'. \
+                 Vérifiez que le fichier est un JSON valide de compte de service Google.",
+                service_account_key_path
+            ))?;
 
         let auth = ServiceAccountAuthenticator::builder(sa_key)
             .build()
@@ -62,11 +76,7 @@ impl GoogleDocsClient {
     ///
     /// Les requêtes sont exécutées dans l'ordre. Les index sont positionnels
     /// et changent après chaque opération — l'appelant doit en tenir compte.
-    pub async fn batch_update(
-        &self,
-        document_id: &str,
-        requests: Vec<Request>,
-    ) -> Result<()> {
+    pub async fn batch_update(&self, document_id: &str, requests: Vec<Request>) -> Result<()> {
         if requests.is_empty() {
             return Ok(());
         }

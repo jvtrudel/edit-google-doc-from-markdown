@@ -2,6 +2,8 @@
 /.tmp
 tmp
 
+# État de synchronisation nou
+.nou/
 
 # Fichiers sensibles - ne jamais committer
 .env
