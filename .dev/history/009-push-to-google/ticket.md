@@ -2,7 +2,7 @@
 
 **Branche :** `impl/push-to-google`  
 **Date :** 2026-03-14  
-**Phase :** 1 — Définir la portée de l'amélioration  
+**Phase :** 2 — Planifier l'amélioration
 **Type :** Implémentation
 
 ---
