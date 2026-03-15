@@ -5,7 +5,9 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum SyncError {
     /// Conflit détecté : les deux côtés ont été modifiés
-    #[error("Conflit détecté : le fichier Markdown et le Google Doc ont été modifiés depuis la dernière synchronisation.\nDernière sync : {last_sync}\nModification locale : {local_modified}\nModification distante : {remote_modified}\nUtilisez --force pour écraser.")]
+    #[error(
+        "Conflit détecté : le fichier Markdown et le Google Doc ont été modifiés depuis la dernière synchronisation.\nDernière sync : {last_sync}\nModification locale : {local_modified}\nModification distante : {remote_modified}\nUtilisez --force pour écraser."
+    )]
     Conflict {
         last_sync: String,
         local_modified: String,
@@ -13,7 +15,9 @@ pub enum SyncError {
     },
 
     /// Aucune association trouvée pour ce fichier
-    #[error("Aucune association trouvée pour '{path}'. Utilisez --doc-id pour spécifier le Google Doc.")]
+    #[error(
+        "Aucune association trouvée pour '{path}'. Utilisez --doc-id pour spécifier le Google Doc."
+    )]
     NoMapping { path: String },
 
     /// Le fichier Markdown n'existe pas

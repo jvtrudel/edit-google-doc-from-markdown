@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.3.0 — 2026-03-14
+
+### Ajouté
+- **Commande `nou pull` fonctionnelle** : récupération d'un Google Doc en fichier Markdown local
+  - Conversion du contenu : titres (h1-h6), paragraphes, gras, italique, liens, listes ordonnées/non ordonnées, blocs de code, lignes horizontales
+  - Association fichier ↔ document persistée dans `.nou/state.json`
+  - Premier pull avec `--doc-id`, les suivants sans argument
+  - Détection de conflit simplifiée : refus si le fichier local est plus récent (sauf `--force`)
+- **Persistance de l'état** (`mapping.rs`) :
+  - Stockage dans `.nou/state.json` (fichier courant + associations)
+  - Résolution automatique du fichier et du document ID
+- **Mode silencieux (`-s`/`--silent`)** : flag global masquant les messages sauf les erreurs (REQ-012)
+- **Intégration CLI `nou`** : le wrapper bash délègue `pull`, `push`, `sync-status` au binaire Rust
+- **20 tests unitaires** : mapping (5), markdown/render (10), converter (5)
+- **Requis** : REQ-010 (état persistant), REQ-011 (gestion multi-fichiers), REQ-012 (mode silencieux)
+- `.nou/` ajouté au `.gitignore`
+
+### Amélioré
+- Message d'erreur détaillé quand le fichier de clé du compte de service est introuvable ou invalide
+- Le fichier de destination est optionnel dans `pull` (résolution via persistance)
+- Alias `-f` pour `--force`
+- Nouvelle dépendance : `chrono` v0.4 (date/heure pour la synchronisation)
+
 ## v0.2.0 — 2026-03-13
 
 ### Changement de portée

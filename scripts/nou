@@ -3,8 +3,10 @@
 # Prototype : commandes non fonctionnelles, documentation uniquement
 set -euo pipefail
 
-VERSION="0.1.0-prototype"
+VERSION="0.2.0"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+BINARY="$PROJECT_DIR/target/release/edit-google-doc"
 
 # Couleurs
 RED='\033[0;31m'
@@ -21,16 +23,37 @@ stub() {
 
 # ─── Commandes principales ───────────────────────────────────────────
 
+# Vérifie que le binaire est compilé, sinon propose de le compiler
+ensure_binary() {
+    if [ ! -f "$BINARY" ]; then
+        # Essayer le binaire debug
+        local debug_binary="$PROJECT_DIR/target/debug/edit-google-doc"
+        if [ -f "$debug_binary" ]; then
+            BINARY="$debug_binary"
+            return 0
+        fi
+        echo -e "${YELLOW}Le binaire n'est pas compilé. Compilation en cours...${NC}"
+        (cd "$PROJECT_DIR" && cargo build --release) || {
+            echo -e "${RED}Erreur de compilation${NC}"
+            exit 1
+        }
+    fi
+}
+
 cmd_help() {
     echo -e "${BOLD}nou${NC} — CLI pour edit-google-doc-from-markdown (v${VERSION})"
     echo ""
     echo -e "${BOLD}USAGE${NC}"
     echo "    nou <commande> [arguments]"
     echo ""
+    echo -e "${BOLD}COMMANDES DE SYNCHRONISATION${NC}"
+    echo "    pull [fichier.md] [--doc-id ID] [-f]   Récupérer un Google Doc en Markdown"
+    echo "    push <fichier.md> [--doc-id ID] [-f]   Publier un Markdown vers Google Doc"
+    echo "    sync-status [fichier.md]               État de synchronisation d'un fichier"
+    echo ""
     echo -e "${BOLD}COMMANDES UTILISATEUR${NC}"
     echo "    help                    Affiche cette aide"
     echo "    status                  État du projet (branche, phase, ticket)"
-    echo "    run \"instruction\"       Lancer l'agent IA avec une requête"
     echo ""
     echo -e "${BOLD}COMMANDES DE DÉVELOPPEMENT${NC}"
     echo "    dev init [name]         Créer une nouvelle ronde d'amélioration"
@@ -168,6 +191,18 @@ main() {
     case "$cmd" in
         help|-h|--help)
             cmd_help
+            ;;
+        pull)
+            ensure_binary
+            "$BINARY" pull "$@"
+            ;;
+        push)
+            ensure_binary
+            "$BINARY" push "$@"
+            ;;
+        sync-status)
+            ensure_binary
+            "$BINARY" status "$@"
             ;;
         status)
             cmd_status

@@ -30,13 +30,22 @@ fichier.md  ←→  Google Doc
 ## Utilisation
 
 ```bash
-# Publier ton Markdown vers un Google Doc
+# Récupérer un Google Doc en Markdown (première fois)
+nou pull mon-document.md --doc-id <ID_DU_DOCUMENT>
+
+# Récupérer les modifications (le fichier et le doc_id sont mémorisés)
+nou pull
+
+# Forcer la mise à jour même si le fichier local a été modifié
+nou pull --force
+
+# Mode silencieux (erreurs seulement)
+nou -s pull
+
+# Publier ton Markdown vers un Google Doc (à venir)
 nou push mon-document.md --doc-id <ID_DU_DOCUMENT>
 
-# Récupérer les modifications du Google Doc
-nou pull mon-document.md
-
-# Voir l'état de synchronisation
+# Voir l'état de synchronisation (à venir)
 nou status mon-document.md
 ```
 
@@ -83,7 +92,7 @@ cp .env.example .env
 ```
 
 ```dotenv
-GOOGLE_SERVICE_ACCOUNT_KEY=service-account.json
+SERVICE_ACCOUNT_KEY_PATH=service-account.json
 RUST_LOG=edit_google_doc=info
 ```
 
@@ -95,16 +104,20 @@ cargo build --release
 
 ## État du projet
 
-Le projet est en développement actif. L'architecture est en place, l'implémentation des fonctionnalités est en cours.
+Le projet est en développement actif.
 
 | Fonctionnalité | État |
 |---|---|
 | CLI (push, pull, status) | ✅ Interface définie |
-| Conversion Markdown → Google Docs | 🔲 À implémenter |
-| Conversion Google Docs → Markdown | 🔲 À implémenter |
-| Préservation du style | 🔲 À implémenter |
-| Détection de conflits | 🔲 À implémenter |
+| Commande `pull` | ✅ Fonctionnelle |
+| Conversion Google Docs → Markdown | ✅ Implémentée (contenu) |
+| Persistance fichier ↔ document | ✅ Implémentée |
+| Mode silencieux (`-s`) | ✅ Implémenté |
 | Transport API Google | ✅ Client prêt |
+| Conversion Markdown → Google Docs | 🔲 À implémenter |
+| Commande `push` | 🔲 À implémenter |
+| Préservation du style | 🔲 À implémenter |
+| Détection de conflits bidirectionnelle | 🔲 À implémenter |
 
 ## Documentation
 
@@ -113,7 +126,7 @@ Le projet est en développement actif. L'architecture est en place, l'implément
 | [CLAUDE.md](CLAUDE.md) | Instructions pour le développement assisté par IA : méthodologie, conventions, commandes slash et CLI |
 | [.dev/adr/001-portee-du-projet.md](.dev/adr/001-portee-du-projet.md) | Décision architecturale : portée et principes du projet |
 | [.dev/needs/](.dev/needs/) | Besoins utilisateurs |
-| [.dev/requirements/](.dev/requirements/) | Requis techniques (9 requis définis) |
+| [.dev/requirements/](.dev/requirements/) | Requis techniques (12 requis définis) |
 | [.dev/features/](.dev/features/) | Fonctionnalités (3 features définies) |
 | [CHANGELOG.md](CHANGELOG.md) | Historique des versions |
 
