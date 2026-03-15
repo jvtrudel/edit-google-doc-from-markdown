@@ -14,6 +14,7 @@ use tracing::{info, warn};
 
 use crate::converter;
 use crate::error::SyncError;
+use google_docs1::api::Document;
 use crate::google_docs::GoogleDocsClient;
 use crate::mapping::{self, SyncMetadata};
 use crate::markdown;
@@ -34,7 +35,56 @@ pub async fn push(fichier: &Path, doc_id: Option<&str>, force: bool) -> Result<(
         doc_id,
         force
     );
-    todo!("Implémenter le push Markdown → Google Doc")
+
+    // 1. Lire le fichier Markdown
+    let contenu = fs::read_to_string(fichier)?;
+
+    // 2. Parser le Markdown
+    let nodes = markdown::parse(&contenu)?;
+
+    // 3. Résoudre le doc_id
+    let doc_id = match doc_id {
+        Some(id) => id.to_string(),
+        None => mapping::get_doc_id_for_file(fichier)?.ok_or(SyncError::NoDocId)?
+    };
+
+    // 4. Vérification de conflit simplifiée
+    let metadata = mapping::get_metadata_for_file(fichier)?;
+    let sa_key_path = std::env::var("SERVICE_ACCOUNT_KEY_PATH")
+        .unwrap_or_else(|_| "service-account.json".to_string());
+    let client = GoogleDocsClient::new(&sa_key_path).await?;
+    let remote_doc = client.get_document(&doc_id).await?;
+    let remote_last_modified = mapping::get_remote_last_modified(&remote_doc)?;
+    if let Some(meta) = &metadata {
+        if !force {
+            let remote_ts = remote_last_modified.as_deref().unwrap_or("");
+            let local_ts = meta.last_sync.as_deref().unwrap_or("");
+            if !local_ts.is_empty() && remote_ts > local_ts {
+                bail!("Conflit : le document distant a été modifié depuis la dernière synchronisation. Utilisez --force pour écraser.");
+            }
+        }
+    }
+
+    // 5. Conversion en requêtes Google Docs
+    let doc_end_index = get_body_end_index(&remote_doc);
+    let conversion = converter::markdown_to_gdoc_requests(&nodes, doc_end_index)?;
+    let requests = conversion.result;
+
+    // 6. Envoi via batch_update
+    client.batch_update(&doc_id, requests).await?;
+
+    // 7. Sauvegarde des métadonnées de synchronisation
+    let now = Utc::now();
+    mapping::save_metadata_for_file(fichier, SyncMetadata {
+        markdown_path: String::new(), // écrasé par save_metadata_for_file
+        document_id: doc_id.clone(),
+        last_sync: Some(now.to_rfc3339()),
+        last_markdown_hash: None,
+        last_revision_id: None,
+    })?;
+
+    info!("Push terminé : {} → {}", fichier.display(), doc_id);
+    Ok(())
 }
 
 /// Récupère un Google Doc en fichier Markdown (FEAT-002)
@@ -142,6 +192,17 @@ pub async fn pull(fichier: &Path, doc_id: Option<&str>, force: bool) -> Result<(
     );
 
     Ok(())
+}
+
+/// Retourne l'index de fin du corps du document (pour calculer la plage de suppression)
+fn get_body_end_index(document: &Document) -> i32 {
+    document
+        .body
+        .as_ref()
+        .and_then(|b| b.content.as_ref())
+        .and_then(|c| c.last())
+        .and_then(|e| e.end_index)
+        .unwrap_or(1)
 }
 
 /// Affiche l'état de synchronisation d'un fichier (FEAT-003)
