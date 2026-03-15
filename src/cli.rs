@@ -9,6 +9,10 @@ use std::path::PathBuf;
     about = "Synchronisation Markdown ↔ Google Docs"
 )]
 pub struct Cli {
+    /// Mode silencieux : n'afficher que les erreurs
+    #[arg(short = 's', long, global = true, default_value_t = false)]
+    pub silent: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }

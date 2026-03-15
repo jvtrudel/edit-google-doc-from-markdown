@@ -15,18 +15,18 @@ use cli::{Cli, Command};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialiser le logging
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("edit_google_doc=debug".parse().unwrap()),
-        )
-        .init();
-
     // Charger les variables d'environnement depuis .env
     dotenvy::dotenv().ok();
 
     let cli = Cli::parse();
+
+    // Initialiser le logging (silencieux = erreurs seulement)
+    let default_level = if cli.silent { "error" } else { "debug" };
+    let filter = tracing_subscriber::EnvFilter::from_default_env()
+        .add_directive(format!("edit_google_doc={}", default_level).parse().unwrap());
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .init();
 
     match cli.command {
         Command::Push {
