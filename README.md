@@ -1,5 +1,8 @@
 # nou — Synchronisation Markdown ↔ Google Docs
 
+
+***!!!Code expérimental généré par IA à des fins pédagogique!!!***
+
 Outil CLI en Rust pour synchroniser un fichier Markdown avec un Google Doc.
 
 **Tu travailles en Markdown dans ton éditeur et tu versionnes avec git. Tes collaborateurs travaillent dans Google Docs.** `nou` fait le pont entre les deux.
@@ -55,7 +58,7 @@ L'ID se trouve dans l'URL du document :
 
 ```
 https://docs.google.com/document/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCDEFG/edit
-                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ```
 
 ### Gestion des conflits

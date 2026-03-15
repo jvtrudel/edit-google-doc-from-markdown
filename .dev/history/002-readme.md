@@ -2,7 +2,7 @@
 
 **Date :** 2026-03-12  
 **Modèle :** Claude Opus 4.6 (via GitHub Copilot dans VS Code)  
-**Environnement :** VS Code, Linux, workspace `[workspace]`
+**Environnement :** VS Code, Linux
 
 ## Prompt
 
